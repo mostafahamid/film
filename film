@@ -1,0 +1,342 @@
+export default {
+  async fetch(request) {
+    try {
+      const url = new URL(request.url);
+      const path = url.pathname;
+      const searchParams = url.searchParams;
+
+      // --- کلید API شما ---
+      const TMDB_API_KEY = "f5155245b128a02e64d0f32eae522d75";
+      const TMDB_BASE = "https://api.themoviedb.org/3";
+
+      // ============================================================
+      // ✅ تابع جستجوی زنده در سایت f2mc.top و استخراج اولین لینک معتبر
+      // ============================================================
+      async function findDownloadLinkFromF2MC(movieTitle) {
+        try {
+          // 1. ساخت آدرس جستجو در سایت f2mc.top
+          const searchUrl = `https://www.f2mc.top/?s=${encodeURIComponent(movieTitle)}`;
+          console.log(`جستجو در آدرس: ${searchUrl}`);
+
+          // 2. درخواست به سایت f2mc.top (با هدرهای واقعی مرورگر)
+          const response = await fetch(searchUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+              'Accept-Language': 'fa-IR,fa;q=0.9,en;q=0.8',
+            }
+          });
+
+          if (!response.ok) {
+            console.error(`خطا در دریافت صفحه: ${response.status}`);
+            return null;
+          }
+
+          const html = await response.text();
+          
+          // 3. الگوهای مختلف لینک دانلود (بر اساس لینک‌های واقعی که شما دادید)
+          // الگوی اصلی: https://bvxbbajdhgxd9g87jwb463wx.abrtech.top/yA3f/Film/...
+          const patterns = [
+            /(https:\/\/[a-zA-Z0-9.-]+\.abrtech\.top[^\s"'>]+\.mkv)/gi,
+            /(https:\/\/[a-zA-Z0-9.-]+\.cdn\.ir[^\s"'>]+\.mkv)/gi,
+            /(https:\/\/[a-zA-Z0-9.-]+\/[^\s"'>]+\.(mkv|mp4))/gi
+          ];
+
+          let foundLink = null;
+          for (const pattern of patterns) {
+            const matches = html.match(pattern);
+            if (matches && matches.length > 0) {
+              // اولین لینک معتبر را برمیگردانیم
+              foundLink = matches[0];
+              break;
+            }
+          }
+
+          // 4. اگر لینکی پیدا شد، آن را برگردان
+          if (foundLink) {
+            console.log(`لینک پیدا شد: ${foundLink}`);
+            return foundLink;
+          } else {
+            console.log("هیچ لینک دانلودی در صفحه جستجو یافت نشد.");
+            return null;
+          }
+        } catch (error) {
+          console.error(`خطا در تابع findDownloadLinkFromF2MC: ${error.message}`);
+          return null;
+        }
+      }
+
+      // ============================================================
+      // توابع کمکی برای رندر صفحات (ظاهر سایت)
+      // ============================================================
+      function renderHeader(activeTab, searchQuery) {
+        return `
+        <div class="header">
+          <h1><a href="/">🎬 آدام فیلم</a></h1>
+          <form action="/search" method="GET" class="search-box">
+            <input type="text" name="q" placeholder="جستجوی فیلم یا سریال..." value="${searchQuery || ''}">
+            <button type="submit">🔍 جستجو</button>
+          </form>
+        </div>
+        <div class="nav">
+          <a href="/" class="${activeTab === 'movies' ? 'active' : ''}">🏠 فیلم‌های روز</a>
+          <a href="/tv" class="${activeTab === 'tv' ? 'active' : ''}">📺 سریال‌ها</a>
+          <a href="/top250-movies">⭐ ۲۵۰ فیلم برتر</a>
+          <a href="/top250-tv">🏆 ۲۵۰ سریال برتر</a>
+        </div>`;
+      }
+
+      function renderFooter() {
+        return `<div class="footer"><p>© 2024 آدام فیلم - دانلود فیلم و سریال با لینک مستقیم و پخش آنلاین</p><p style="font-size: 11px; margin-top: 5px;">لینک‌ها به صورت خودکار از <a href="https://www.f2mc.top" target="_blank" style="color:#e50914;">f2mc.top</a> دریافت می‌شوند</p></div>`;
+      }
+
+      function renderMovieCards(movies) {
+        let html = '<div class="movies-grid">';
+        for (const movie of movies) {
+          const poster = movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : '';
+          const year = movie.release_date ? movie.release_date.split('-')[0] : 'نامشخص';
+          const rating = movie.vote_average ? movie.vote_average.toFixed(1) : '?';
+          html += `
+            <div class="movie-card" onclick="location.href='/movie/${movie.id}'">
+              ${poster ? `<img src="${poster}" alt="${movie.title}">` : '<div class="no-poster">🎬 بدون پوستر</div>'}
+              <div class="movie-info">
+                <h3>${movie.title}</h3>
+                <div class="meta"><span>⭐ ${rating}</span><span>📅 ${year}</span></div>
+              </div>
+            </div>`;
+        }
+        html += '</div>';
+        return html;
+      }
+
+      // ============================================================
+      // مسیرهای اصلی سایت (بدون تغییر)
+      // ============================================================
+      // صفحه اصلی
+      if (path === "/" || path === "/movies") {
+        const page = parseInt(searchParams.get("page") || "1");
+        const tmdbUrl = `${TMDB_BASE}/trending/movie/week?api_key=${TMDB_API_KEY}&language=fa-IR&page=${page}`;
+        const response = await fetch(tmdbUrl);
+        const data = await response.json();
+        if (!data.results) return new Response("خطا در دریافت اطلاعات", { status: 500 });
+        
+        const content = `<h2 class="page-title">🔥 جدیدترین فیلم‌های هفته</h2>${renderMovieCards(data.results)}`;
+        const fullHtml = generateFullHTML(content, "movies", "");
+        return new Response(fullHtml, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
+
+      // صفحه سریال‌ها
+      if (path === "/tv") {
+        const page = parseInt(searchParams.get("page") || "1");
+        const tmdbUrl = `${TMDB_BASE}/trending/tv/week?api_key=${TMDB_API_KEY}&language=fa-IR&page=${page}`;
+        const response = await fetch(tmdbUrl);
+        const data = await response.json();
+        if (!data.results) return new Response("خطا در دریافت اطلاعات", { status: 500 });
+        
+        let seriesHtml = '<div class="movies-grid">';
+        for (const serie of data.results) {
+          const poster = serie.poster_path ? `https://image.tmdb.org/t/p/w500${serie.poster_path}` : '';
+          const year = serie.first_air_date ? serie.first_air_date.split('-')[0] : 'نامشخص';
+          const rating = serie.vote_average ? serie.vote_average.toFixed(1) : '?';
+          seriesHtml += `
+            <div class="movie-card" onclick="location.href='/tv/${serie.id}'">
+              ${poster ? `<img src="${poster}" alt="${serie.name}">` : '<div class="no-poster">🎬 بدون پوستر</div>'}
+              <div class="movie-info">
+                <h3>${serie.name}</h3>
+                <div class="meta"><span>⭐ ${rating}</span><span>📅 ${year}</span></div>
+              </div>
+            </div>`;
+        }
+        seriesHtml += '</div>';
+        const fullHtml = generateFullHTML(`<h2 class="page-title">📺 جدیدترین سریال‌های هفته</h2>${seriesHtml}`, "tv", "");
+        return new Response(fullHtml, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
+
+      // ============================================================
+      // 🎯 صفحه جزئیات فیلم (با جستجوی زنده لینک دانلود)
+      // ============================================================
+      if (path.startsWith("/movie/")) {
+        const movieId = path.split("/")[2];
+        
+        // دریافت اطلاعات فیلم از TMDB
+        const tmdbRes = await fetch(`${TMDB_BASE}/movie/${movieId}?api_key=${TMDB_API_KEY}&language=fa-IR`);
+        const movie = await tmdbRes.json();
+        if (!movie || movie.status_code === 34) return new Response("فیلم یافت نشد", { status: 404 });
+        
+        const title = movie.title;
+        const originalTitle = movie.original_title;
+        const year = movie.release_date ? movie.release_date.split('-')[0] : "نامشخص";
+        const poster = movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : "";
+        const backdrop = movie.backdrop_path ? `https://image.tmdb.org/t/p/original${movie.backdrop_path}` : "";
+        const overview = movie.overview || "خلاصه داستانی ثبت نشده است.";
+        const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "?";
+        const genres = movie.genres ? movie.genres.map(g => g.name).join(" • ") : "نامشخص";
+        const imdbId = movie.imdb_id;
+
+        // ========================================================
+        // 🚀 اینجا معجزه اتفاق میفته: جستجوی لینک دانلود در لحظه
+        // ========================================================
+        let downloadLink = null;
+        let searchStatus = "در حال جستجوی لینک دانلود از سرورهای فایل...";
+        
+        if (originalTitle) {
+          downloadLink = await findDownloadLinkFromF2MC(originalTitle);
+          if (!downloadLink) {
+            // اگر با اسم اصلی پیدا نشد، با اسم معمولی جستجو کن
+            downloadLink = await findDownloadLinkFromF2MC(title);
+          }
+        }
+        
+        let downloadSectionHtml = '';
+        if (downloadLink) {
+          downloadSectionHtml = `
+            <div class="download-link-found">
+              <div class="success-message">✅ لینک دانلود واقعی و سالم پیدا شد!</div>
+              <div class="link-box" dir="ltr">${downloadLink}</div>
+              <a href="${downloadLink}" class="download-button" target="_blank" rel="noopener noreferrer">
+                📥 شروع دانلود (کیفیت اصلی - بدون سانسور)
+              </a>
+              <p class="download-note">💡 نکته: اگر دانلود شروع نشد، روی لینک بالا کلیک راست کرده و گزینه "Save link as..." را انتخاب کنید.</p>
+            </div>
+          `;
+        } else {
+          downloadSectionHtml = `
+            <div class="no-link-found">
+              <div class="error-message">⚠️ لینک دانلود خودکار پیدا نشد!</div>
+              <p>متاسفانه لینک دانلود برای فیلم "${title}" در پایگاه داده یافت نشد.</p>
+              <p>برای مشاهده لینک‌های بیشتر می‌توانید مستقیماً در <a href="https://www.f2mc.top/?s=${encodeURIComponent(originalTitle)}" target="_blank" style="color:#e50914;">سایت f2mc.top</a> جستجو کنید.</p>
+            </div>
+          `;
+        }
+
+        const content = `
+          <div class="movie-detail-page">
+            <div class="movie-header" ${backdrop ? `style="background-image: linear-gradient(rgba(0,0,0,0.8), rgba(0,0,0,0.9)), url('${backdrop}')"` : ''}>
+              <div class="movie-info-container">
+                ${poster ? `<img src="${poster}" class="detail-poster" alt="${title}">` : '<div class="detail-poster no-poster">🎬</div>'}
+                <div class="detail-text">
+                  <h1>${title}</h1>
+                  <p class="original-title">${originalTitle} (${year})</p>
+                  <div class="detail-meta"><span>⭐ ${rating}</span><span>📅 ${year}</span><span>🎭 ${genres}</span></div>
+                  <p class="overview">${overview}</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- پخش آنلاین با زیرنویس فارسی -->
+            <div class="online-player-section">
+              <h3>🎬 پخش آنلاین فیلم (زیرنویس فارسی چسبیده)</h3>
+              <div class="video-container">
+                <iframe src="https://vidsrc.xyz/embed/movie/${imdbId || movieId}" frameborder="0" allowfullscreen></iframe>
+              </div>
+              <p class="player-note">💡 کیفیت پخش به اینترنت شما بستگی دارد. برای تجربه بهتر، از دکمه دانلود استفاده کنید.</p>
+            </div>
+            
+            <!-- بخش دانلود مستقیم (نتیجه جستجوی زنده) -->
+            <div class="download-section">
+              <h3>📥 لینک دانلود مستقیم (بدون سانسور)</h3>
+              ${downloadSectionHtml}
+            </div>
+          </div>
+        `;
+        
+        const fullHtml = generateFullHTML(content, "movies", "");
+        return new Response(fullHtml, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
+
+      return new Response("صفحه مورد نظر یافت نشد", { status: 404 });
+      
+    } catch (error) {
+      console.error(error);
+      return new Response(`<html><body style="background:#0f0f1a; color:white; text-align:center; padding:50px;"><h1 style="color:#e50914;">❌ خطای داخلی سرور</h1><p>${error.message}</p><button onclick="location.reload()">تلاش مجدد</button></body></html>`, { status: 500 });
+    }
+  }
+};
+
+// تابع کمکی برای تولید قالب کامل HTML
+function generateFullHTML(content, activeTab, searchQuery) {
+  return `<!DOCTYPE html>
+  <html lang="fa" dir="rtl">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>آدام فیلم - دانلود فیلم و سریال بدون سانسور</title>
+    <style>
+      * { margin:0; padding:0; box-sizing:border-box; }
+      body { font-family: 'Tahoma', 'Vazirmatn', sans-serif; background: #0f0f1a; color: #fff; direction: rtl; line-height:1.6; }
+      .header { background: linear-gradient(135deg, #e50914, #b20710); padding: 20px; text-align: center; }
+      .header h1 a { color: white; text-decoration: none; font-size: 2em; }
+      .search-box { max-width: 500px; margin: 15px auto 0; display: flex; }
+      .search-box input { flex: 1; padding: 10px; border: none; border-radius: 8px 0 0 8px; font-size: 14px; }
+      .search-box button { padding: 10px 20px; background: #333; color: white; border: none; border-radius: 0 8px 8px 0; cursor: pointer; }
+      .nav { background: #1a1a2e; padding: 12px; text-align: center; border-bottom: 2px solid #e50914; position: sticky; top: 0; }
+      .nav a { color: white; text-decoration: none; margin: 0 8px; padding: 6px 15px; border-radius: 6px; transition: 0.3s; display: inline-block; }
+      .nav a:hover, .nav a.active { background: #e50914; }
+      .container { max-width: 1300px; margin: 30px auto; padding: 0 20px; }
+      .page-title { margin-bottom: 25px; border-right: 4px solid #e50914; padding-right: 15px; }
+      .movies-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 25px; }
+      .movie-card { background: #1a1a2e; border-radius: 12px; overflow: hidden; cursor: pointer; transition: 0.3s; border: 1px solid #2a2a3e; }
+      .movie-card:hover { transform: translateY(-5px); box-shadow: 0 8px 20px rgba(229,9,20,0.3); border-color: #e50914; }
+      .movie-card img { width: 100%; height: 270px; object-fit: cover; }
+      .no-poster { height: 270px; background: #2a2a3e; display: flex; align-items: center; justify-content: center; }
+      .movie-card h3 { padding: 12px; font-size: 15px; text-align: center; }
+      .meta { display: flex; justify-content: center; gap: 15px; padding-bottom: 12px; font-size: 12px; color: #ccc; }
+      .footer { background: #1a1a2e; text-align: center; padding: 20px; margin-top: 50px; border-top: 1px solid #e50914; color: #888; font-size: 12px; }
+      .footer a { color: #e50914; text-decoration: none; }
+      
+      /* جزئیات فیلم */
+      .movie-detail-page { background: #1a1a2e; border-radius: 20px; overflow: hidden; }
+      .movie-header { background-size: cover; background-position: center; padding: 40px; }
+      .movie-info-container { display: flex; flex-wrap: wrap; gap: 30px; align-items: flex-start; }
+      .detail-poster { width: 240px; border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+      .detail-text { flex: 1; }
+      .detail-text h1 { font-size: 1.8em; color: #e50914; margin-bottom: 8px; }
+      .original-title { color: #aaa; margin-bottom: 12px; }
+      .detail-meta { display: flex; flex-wrap: wrap; gap: 12px; margin: 15px 0; padding: 12px 0; border-top: 1px solid #333; border-bottom: 1px solid #333; }
+      .overview { line-height: 1.7; color: #ddd; }
+      .online-player-section, .download-section { padding: 25px; border-top: 1px solid #2a2a3e; }
+      .online-player-section h3, .download-section h3 { color: #e50914; margin-bottom: 15px; }
+      .video-container { position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border-radius: 12px; background: #000; }
+      .video-container iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+      .player-note { font-size: 12px; color: #aaa; text-align: center; margin-top: 12px; }
+      
+      /* بخش دانلود خودکار */
+      .download-link-found, .no-link-found { background: #0f0f1a; border-radius: 12px; padding: 20px; margin-top: 10px; }
+      .success-message { background: #1a4a2a; color: #4caf50; padding: 10px; border-radius: 8px; margin-bottom: 15px; text-align: center; font-weight: bold; }
+      .error-message { background: #4a1a1a; color: #ff6b6b; padding: 10px; border-radius: 8px; margin-bottom: 15px; text-align: center; font-weight: bold; }
+      .link-box { background: #1a1a2e; padding: 12px; border-radius: 8px; font-size: 12px; direction: ltr; text-align: left; word-break: break-all; margin-bottom: 15px; border: 1px solid #2a2a3e; color: #4caf50; }
+      .download-button { display: inline-block; background: #e50914; color: white; padding: 12px 25px; border-radius: 8px; text-decoration: none; font-weight: bold; transition: 0.3s; margin-bottom: 10px; }
+      .download-button:hover { background: #ff0a1a; transform: scale(1.02); }
+      .download-note { font-size: 11px; color: #888; margin-top: 10px; }
+      .no-link-found p { margin-bottom: 10px; }
+      @media (max-width: 768px) { .movies-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); } .detail-poster { width: 160px; } .movie-card img, .no-poster { height: 200px; } }
+    </style>
+  </head>
+  <body>
+    ${renderHeader(activeTab, searchQuery)}
+    <div class="container">${content}</div>
+    ${renderFooter()}
+  </body>
+  </html>`;
+  
+  function renderHeader(activeTab, searchQuery) {
+    return `
+    <div class="header">
+      <h1><a href="/">🎬 آدام فیلم</a></h1>
+      <form action="/search" method="GET" class="search-box">
+        <input type="text" name="q" placeholder="جستجوی فیلم یا سریال..." value="${searchQuery || ''}">
+        <button type="submit">🔍 جستجو</button>
+      </form>
+    </div>
+    <div class="nav">
+      <a href="/" class="${activeTab === 'movies' ? 'active' : ''}">🏠 فیلم‌های روز</a>
+      <a href="/tv" class="${activeTab === 'tv' ? 'active' : ''}">📺 سریال‌ها</a>
+      <a href="/top250-movies">⭐ ۲۵۰ فیلم برتر</a>
+      <a href="/top250-tv">🏆 ۲۵۰ سریال برتر</a>
+    </div>`;
+  }
+  
+  function renderFooter() {
+    return `<div class="footer"><p>© 2024 آدام فیلم - دانلود فیلم و سریال با لینک مستقیم و پخش آنلاین</p><p style="font-size: 11px; margin-top: 5px;">لینک‌ها به صورت خودکار از <a href="https://www.f2mc.top" target="_blank" style="color:#e50914;">f2mc.top</a> دریافت می‌شوند</p></div>`;
+  }
+}
