@@ -5,338 +5,737 @@ export default {
       const path = url.pathname;
       const searchParams = url.searchParams;
 
-      // --- کلید API شما ---
       const TMDB_API_KEY = "f5155245b128a02e64d0f32eae522d75";
       const TMDB_BASE = "https://api.themoviedb.org/3";
 
-      // ============================================================
-      // ✅ تابع جستجوی زنده در سایت f2mc.top و استخراج اولین لینک معتبر
-      // ============================================================
-      async function findDownloadLinkFromF2MC(movieTitle) {
-        try {
-          // 1. ساخت آدرس جستجو در سایت f2mc.top
-          const searchUrl = `https://www.f2mc.top/?s=${encodeURIComponent(movieTitle)}`;
-          console.log(`جستجو در آدرس: ${searchUrl}`);
+      // ==================== تابع جستجوی دانلود ====================
+      async function searchDownloadLink(title, originalTitle, quality = '') {
+        const queries = [originalTitle || title, title];
+        if (quality) queries.push(`${originalTitle || title} ${quality}`.trim());
 
-          // 2. درخواست به سایت f2mc.top (با هدرهای واقعی مرورگر)
-          const response = await fetch(searchUrl, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-              'Accept-Language': 'fa-IR,fa;q=0.9,en;q=0.8',
-            }
-          });
+        const sites = ["https://www.f2mc.top", "https://www.f2m.top", "https://digimovie.vip"];
 
-          if (!response.ok) {
-            console.error(`خطا در دریافت صفحه: ${response.status}`);
-            return null;
+        for (const q of queries) {
+          for (const site of sites) {
+            try {
+              const res = await fetch(`${site}/?s=${encodeURIComponent(q)}`, {
+                headers: { 'User-Agent': 'Mozilla/5.0' }
+              });
+              if (!res.ok) continue;
+              const html = await res.text();
+              const links = html.match(/https?:\/\/[^\s"'<>]+\.(?:mkv|mp4)/gi);
+              if (links && links.length > 0) {
+                let link = links[0].replace(/["']/g, '');
+                if (!link.startsWith('http')) link = 'https://' + link;
+                return { link, source: site.replace('https://', '') };
+              }
+            } catch (e) { continue; }
           }
-
-          const html = await response.text();
-          
-          // 3. الگوهای مختلف لینک دانلود (بر اساس لینک‌های واقعی که شما دادید)
-          // الگوی اصلی: https://bvxbbajdhgxd9g87jwb463wx.abrtech.top/yA3f/Film/...
-          const patterns = [
-            /(https:\/\/[a-zA-Z0-9.-]+\.abrtech\.top[^\s"'>]+\.mkv)/gi,
-            /(https:\/\/[a-zA-Z0-9.-]+\.cdn\.ir[^\s"'>]+\.mkv)/gi,
-            /(https:\/\/[a-zA-Z0-9.-]+\/[^\s"'>]+\.(mkv|mp4))/gi
-          ];
-
-          let foundLink = null;
-          for (const pattern of patterns) {
-            const matches = html.match(pattern);
-            if (matches && matches.length > 0) {
-              // اولین لینک معتبر را برمیگردانیم
-              foundLink = matches[0];
-              break;
-            }
-          }
-
-          // 4. اگر لینکی پیدا شد، آن را برگردان
-          if (foundLink) {
-            console.log(`لینک پیدا شد: ${foundLink}`);
-            return foundLink;
-          } else {
-            console.log("هیچ لینک دانلودی در صفحه جستجو یافت نشد.");
-            return null;
-          }
-        } catch (error) {
-          console.error(`خطا در تابع findDownloadLinkFromF2MC: ${error.message}`);
-          return null;
         }
+        return null;
       }
 
-      // ============================================================
-      // توابع کمکی برای رندر صفحات (ظاهر سایت)
-      // ============================================================
+      // ==================== رندر هدر ====================
       function renderHeader(activeTab, searchQuery) {
         return `
-        <div class="header">
-          <h1><a href="/">🎬 آدام فیلم</a></h1>
-          <form action="/search" method="GET" class="search-box">
-            <input type="text" name="q" placeholder="جستجوی فیلم یا سریال..." value="${searchQuery || ''}">
-            <button type="submit">🔍 جستجو</button>
-          </form>
-        </div>
-        <div class="nav">
-          <a href="/" class="${activeTab === 'movies' ? 'active' : ''}">🏠 فیلم‌های روز</a>
-          <a href="/tv" class="${activeTab === 'tv' ? 'active' : ''}">📺 سریال‌ها</a>
-          <a href="/top250-movies">⭐ ۲۵۰ فیلم برتر</a>
-          <a href="/top250-tv">🏆 ۲۵۰ سریال برتر</a>
-        </div>`;
-      }
-
-      function renderFooter() {
-        return `<div class="footer"><p>© 2024 آدام فیلم - دانلود فیلم و سریال با لینک مستقیم و پخش آنلاین</p><p style="font-size: 11px; margin-top: 5px;">لینک‌ها به صورت خودکار از <a href="https://www.f2mc.top" target="_blank" style="color:#e50914;">f2mc.top</a> دریافت می‌شوند</p></div>`;
-      }
-
-      function renderMovieCards(movies) {
-        let html = '<div class="movies-grid">';
-        for (const movie of movies) {
-          const poster = movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : '';
-          const year = movie.release_date ? movie.release_date.split('-')[0] : 'نامشخص';
-          const rating = movie.vote_average ? movie.vote_average.toFixed(1) : '?';
-          html += `
-            <div class="movie-card" onclick="location.href='/movie/${movie.id}'">
-              ${poster ? `<img src="${poster}" alt="${movie.title}">` : '<div class="no-poster">🎬 بدون پوستر</div>'}
-              <div class="movie-info">
-                <h3>${movie.title}</h3>
-                <div class="meta"><span>⭐ ${rating}</span><span>📅 ${year}</span></div>
+          <div class="header">
+            <div class="header-content">
+              <div class="logo">
+                <span class="logo-icon">🎬</span>
+                <span class="logo-text">آدام فیلم</span>
               </div>
-            </div>`;
-        }
-        html += '</div>';
+              <form action="/search" method="GET" class="search-form">
+                <input type="text" name="q" placeholder="جستجوی فیلم و سریال..." value="${searchQuery || ''}">
+                <button type="submit">جستجو</button>
+              </form>
+            </div>
+            <div class="nav">
+              <a href="/" class="${activeTab === 'movies' ? 'active' : ''}">فیلم‌ها</a>
+              <a href="/tv" class="${activeTab === 'tv' ? 'active' : ''}">سریال‌ها</a>
+              <a href="/turkish-series">سریال ترکی</a>
+              <a href="/korean-series">سریال کره‌ای</a>
+              <a href="/asian-series">سریال آسیایی</a>
+              <a href="/top250-movies">250 فیلم برتر</a>
+              <a href="/top250-tv">250 سریال برتر</a>
+            </div>
+          </div>`;
+      }
+
+      function generateHTML(content, activeTab = 'movies', searchQuery = '') {
+        return `<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>آدام فیلم | دانلود فیلم و سریال</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700&display=swap');
+    
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: 'Vazirmatn', Tahoma, sans-serif;
+      background: #0f0f1a;
+      color: #fff;
+      direction: rtl;
+      line-height: 1.6;
+    }
+    
+    .header {
+      background: #1a1a2e;
+      border-bottom: 2px solid #e50914;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header-content {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 18px 30px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo-icon { font-size: 30px; }
+    .logo-text {
+      font-size: 26px;
+      font-weight: 700;
+      color: #e50914;
+    }
+    
+    .search-form {
+      display: flex;
+      background: #161623;
+      border-radius: 8px;
+      border: 1px solid #2a2a3e;
+      overflow: hidden;
+      width: 100%;
+      max-width: 400px;
+    }
+    .search-form input {
+      flex: 1;
+      padding: 12px 18px;
+      background: transparent;
+      border: none;
+      color: white;
+      font-size: 15px;
+    }
+    .search-form button {
+      padding: 12px 22px;
+      background: #e50914;
+      border: none;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    
+    .nav {
+      background: #161623;
+      padding: 0 30px;
+    }
+    .nav a {
+      display: inline-block;
+      padding: 14px 18px;
+      color: #aaa;
+      text-decoration: none;
+      font-weight: 500;
+      transition: 0.3s;
+      white-space: nowrap;
+    }
+    .nav a:hover, .nav a.active {
+      color: white;
+      background: #e50914;
+      border-radius: 6px;
+    }
+    
+    .container {
+      max-width: 1400px;
+      margin: 40px auto;
+      padding: 0 30px;
+    }
+    
+    .page-title {
+      font-size: 26px;
+      margin-bottom: 30px;
+      padding-right: 18px;
+      border-right: 5px solid #e50914;
+    }
+    
+    .movies-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+      gap: 22px;
+    }
+    
+    .movie-card {
+      background: #1a1a2e;
+      border-radius: 12px;
+      overflow: hidden;
+      transition: all 0.3s;
+      border: 1px solid #2a2a3e;
+      cursor: pointer;
+    }
+    .movie-card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 20px 40px rgba(229,9,20,0.2);
+      border-color: #e50914;
+    }
+    .movie-card img {
+      width: 100%;
+      height: 270px;
+      object-fit: cover;
+    }
+    .movie-info {
+      padding: 14px;
+    }
+    .movie-info h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      line-height: 1.3;
+    }
+    .movie-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: #888;
+    }
+    
+    .section {
+      margin-top: 50px;
+      padding: 28px;
+      background: #161623;
+      border-radius: 16px;
+    }
+    .section h3 {
+      color: #e50914;
+      margin-bottom: 18px;
+      font-size: 20px;
+    }
+    
+    .quality-btn {
+      background: #2a2a3e;
+      color: white;
+      border: 2px solid #e50914;
+      padding: 12px 28px;
+      border-radius: 50px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      margin: 5px;
+    }
+    .quality-btn:hover {
+      background: #e50914;
+      transform: translateY(-2px);
+    }
+    
+    .player-tabs {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 15px;
+    }
+    .player-tab {
+      background: #2a2a3e;
+      color: white;
+      border: none;
+      padding: 10px 22px;
+      border-radius: 50px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .player-tab.active {
+      background: #e50914;
+    }
+    
+    .video-container {
+      position: relative;
+      padding-bottom: 56.25%;
+      height: 0;
+      overflow: hidden;
+      border-radius: 14px;
+      background: #000;
+    }
+    .video-container iframe {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+    
+    .download-result {
+      margin-top: 18px;
+      padding: 16px;
+      background: #111;
+      border-radius: 12px;
+      border: 1px solid #2a2a3e;
+    }
+    
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+    .info-item {
+      background: #1f1f2e;
+      padding: 13px 16px;
+      border-radius: 10px;
+    }
+    .info-label {
+      color: #888;
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .info-value {
+      font-weight: 600;
+      font-size: 15px;
+    }
+    
+    .more-info-btn {
+      background: #2a2a3e;
+      color: white;
+      border: 2px solid #666;
+      padding: 10px 24px;
+      border-radius: 50px;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 18px;
+    }
+    .more-info-btn:hover {
+      border-color: #e50914;
+    }
+    
+    .extra-info {
+      display: none;
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid #2a2a3e;
+    }
+    .extra-info.show {
+      display: block;
+    }
+    
+    .episode-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 5px 0;
+      flex-wrap: wrap;
+    }
+    .episode-btn {
+      background: #2a2a3e;
+      color: white;
+      border: 1px solid #e50914;
+      padding: 7px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .episode-btn:hover {
+      background: #e50914;
+    }
+    
+    .pagination {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 40px;
+    }
+    .pagination a, .pagination span {
+      padding: 10px 18px;
+      background: #1a1a2e;
+      border: 1px solid #2a2a3e;
+      border-radius: 8px;
+      color: white;
+      text-decoration: none;
+    }
+    .pagination .active {
+      background: #e50914;
+      border-color: #e50914;
+    }
+    
+    .download-sources {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 15px;
+    }
+    .source-btn {
+      background: #2a2a3e;
+      color: white;
+      border: 2px solid #666;
+      padding: 10px 20px;
+      border-radius: 50px;
+      font-size: 14px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .source-btn:hover {
+      border-color: #e50914;
+      background: #3a3a4e;
+    }
+  </style>
+</head>
+<body>
+  ${renderHeader(activeTab, searchQuery)}
+  <div class="container">
+    ${content}
+  </div>
+</body>
+</html>`;
+      }
+
+      // ==================== تابع صفحه‌بندی ====================
+      function getPagination(currentPage, totalPages, baseUrl) {
+        let html = `<div class="pagination">`;
+        if (currentPage > 1) html += `<a href="${baseUrl}?page=${currentPage - 1}">◀ صفحه قبل</a>`;
+        html += `<span class="active">صفحه ${currentPage} از ${totalPages}</span>`;
+        if (currentPage < totalPages) html += `<a href="${baseUrl}?page=${currentPage + 1}">صفحه بعد ▶</a>`;
+        html += `</div>`;
         return html;
       }
 
-      // ============================================================
-      // مسیرهای اصلی سایت (بدون تغییر)
-      // ============================================================
-      // صفحه اصلی
-      if (path === "/" || path === "/movies") {
-        const page = parseInt(searchParams.get("page") || "1");
-        const tmdbUrl = `${TMDB_BASE}/trending/movie/week?api_key=${TMDB_API_KEY}&language=fa-IR&page=${page}`;
-        const response = await fetch(tmdbUrl);
-        const data = await response.json();
-        if (!data.results) return new Response("خطا در دریافت اطلاعات", { status: 500 });
-        
-        const content = `<h2 class="page-title">🔥 جدیدترین فیلم‌های هفته</h2>${renderMovieCards(data.results)}`;
-        const fullHtml = generateFullHTML(content, "movies", "");
-        return new Response(fullHtml, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
-      }
+      // ==================== صفحه جستجو ====================
+      if (path === "/search") {
+        const query = searchParams.get("q") || "";
+        const page = parseInt(searchParams.get("page")) || 1;
 
-      // صفحه سریال‌ها
-      if (path === "/tv") {
-        const page = parseInt(searchParams.get("page") || "1");
-        const tmdbUrl = `${TMDB_BASE}/trending/tv/week?api_key=${TMDB_API_KEY}&language=fa-IR&page=${page}`;
-        const response = await fetch(tmdbUrl);
-        const data = await response.json();
-        if (!data.results) return new Response("خطا در دریافت اطلاعات", { status: 500 });
-        
-        let seriesHtml = '<div class="movies-grid">';
-        for (const serie of data.results) {
-          const poster = serie.poster_path ? `https://image.tmdb.org/t/p/w500${serie.poster_path}` : '';
-          const year = serie.first_air_date ? serie.first_air_date.split('-')[0] : 'نامشخص';
-          const rating = serie.vote_average ? serie.vote_average.toFixed(1) : '?';
-          seriesHtml += `
-            <div class="movie-card" onclick="location.href='/tv/${serie.id}'">
-              ${poster ? `<img src="${poster}" alt="${serie.name}">` : '<div class="no-poster">🎬 بدون پوستر</div>'}
-              <div class="movie-info">
-                <h3>${serie.name}</h3>
-                <div class="meta"><span>⭐ ${rating}</span><span>📅 ${year}</span></div>
-              </div>
-            </div>`;
+        if (!query) {
+          return new Response(generateHTML(`<h2 class="page-title">لطفاً عبارت جستجو را وارد کنید</h2>`), { 
+            headers: { "Content-Type": "text/html;charset=UTF-8" } 
+          });
         }
-        seriesHtml += '</div>';
-        const fullHtml = generateFullHTML(`<h2 class="page-title">📺 جدیدترین سریال‌های هفته</h2>${seriesHtml}`, "tv", "");
-        return new Response(fullHtml, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
-      }
 
-      // ============================================================
-      // 🎯 صفحه جزئیات فیلم (با جستجوی زنده لینک دانلود)
-      // ============================================================
-      if (path.startsWith("/movie/")) {
-        const movieId = path.split("/")[2];
-        
-        // دریافت اطلاعات فیلم از TMDB
-        const tmdbRes = await fetch(`${TMDB_BASE}/movie/${movieId}?api_key=${TMDB_API_KEY}&language=fa-IR`);
-        const movie = await tmdbRes.json();
-        if (!movie || movie.status_code === 34) return new Response("فیلم یافت نشد", { status: 404 });
-        
-        const title = movie.title;
-        const originalTitle = movie.original_title;
-        const year = movie.release_date ? movie.release_date.split('-')[0] : "نامشخص";
-        const poster = movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : "";
-        const backdrop = movie.backdrop_path ? `https://image.tmdb.org/t/p/original${movie.backdrop_path}` : "";
-        const overview = movie.overview || "خلاصه داستانی ثبت نشده است.";
-        const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "?";
-        const genres = movie.genres ? movie.genres.map(g => g.name).join(" • ") : "نامشخص";
-        const imdbId = movie.imdb_id;
+        const res = await fetch(`${TMDB_BASE}/search/multi?api_key=${TMDB_API_KEY}&language=fa-IR&query=${encodeURIComponent(query)}&page=${page}`);
+        const data = await res.json();
+        const totalPages = Math.min(data.total_pages || 1, 500);
 
-        // ========================================================
-        // 🚀 اینجا معجزه اتفاق میفته: جستجوی لینک دانلود در لحظه
-        // ========================================================
-        let downloadLink = null;
-        let searchStatus = "در حال جستجوی لینک دانلود از سرورهای فایل...";
-        
-        if (originalTitle) {
-          downloadLink = await findDownloadLinkFromF2MC(originalTitle);
-          if (!downloadLink) {
-            // اگر با اسم اصلی پیدا نشد، با اسم معمولی جستجو کن
-            downloadLink = await findDownloadLinkFromF2MC(title);
+        let html = `<h2 class="page-title">نتایج جستجو برای: "${query}"</h2><div class="movies-grid">`;
+
+        for (const item of data.results || []) {
+          if (item.media_type === "movie") {
+            html += `<div class="movie-card" onclick="location.href='/movie/${item.id}'"><img src="https://image.tmdb.org/t/p/w500${item.poster_path}" alt="${item.title}"><div class="movie-info"><h3>${item.title}</h3><div class="movie-meta"><span>⭐ ${item.vote_average?.toFixed(1) || '?'}</span><span>${item.release_date ? item.release_date.split('-')[0] : ''}</span></div></div></div>`;
+          } else if (item.media_type === "tv") {
+            html += `<div class="movie-card" onclick="location.href='/tv/${item.id}'"><img src="https://image.tmdb.org/t/p/w500${item.poster_path}" alt="${item.name}"><div class="movie-info"><h3>${item.name}</h3><div class="movie-meta"><span>⭐ ${item.vote_average?.toFixed(1) || '?'}</span><span>${item.first_air_date ? item.first_air_date.split('-')[0] : ''}</span></div></div></div>`;
           }
         }
-        
-        let downloadSectionHtml = '';
-        if (downloadLink) {
-          downloadSectionHtml = `
-            <div class="download-link-found">
-              <div class="success-message">✅ لینک دانلود واقعی و سالم پیدا شد!</div>
-              <div class="link-box" dir="ltr">${downloadLink}</div>
-              <a href="${downloadLink}" class="download-button" target="_blank" rel="noopener noreferrer">
-                📥 شروع دانلود (کیفیت اصلی - بدون سانسور)
-              </a>
-              <p class="download-note">💡 نکته: اگر دانلود شروع نشد، روی لینک بالا کلیک راست کرده و گزینه "Save link as..." را انتخاب کنید.</p>
-            </div>
-          `;
-        } else {
-          downloadSectionHtml = `
-            <div class="no-link-found">
-              <div class="error-message">⚠️ لینک دانلود خودکار پیدا نشد!</div>
-              <p>متاسفانه لینک دانلود برای فیلم "${title}" در پایگاه داده یافت نشد.</p>
-              <p>برای مشاهده لینک‌های بیشتر می‌توانید مستقیماً در <a href="https://www.f2mc.top/?s=${encodeURIComponent(originalTitle)}" target="_blank" style="color:#e50914;">سایت f2mc.top</a> جستجو کنید.</p>
-            </div>
-          `;
-        }
+        html += `</div>`;
+        html += getPagination(page, totalPages, `/search?q=${encodeURIComponent(query)}`);
 
-        const content = `
-          <div class="movie-detail-page">
-            <div class="movie-header" ${backdrop ? `style="background-image: linear-gradient(rgba(0,0,0,0.8), rgba(0,0,0,0.9)), url('${backdrop}')"` : ''}>
-              <div class="movie-info-container">
-                ${poster ? `<img src="${poster}" class="detail-poster" alt="${title}">` : '<div class="detail-poster no-poster">🎬</div>'}
-                <div class="detail-text">
-                  <h1>${title}</h1>
-                  <p class="original-title">${originalTitle} (${year})</p>
-                  <div class="detail-meta"><span>⭐ ${rating}</span><span>📅 ${year}</span><span>🎭 ${genres}</span></div>
-                  <p class="overview">${overview}</p>
-                </div>
-              </div>
-            </div>
-
-            <!-- پخش آنلاین با زیرنویس فارسی -->
-            <div class="online-player-section">
-              <h3>🎬 پخش آنلاین فیلم (زیرنویس فارسی چسبیده)</h3>
-              <div class="video-container">
-                <iframe src="https://vidsrc.xyz/embed/movie/${imdbId || movieId}" frameborder="0" allowfullscreen></iframe>
-              </div>
-              <p class="player-note">💡 کیفیت پخش به اینترنت شما بستگی دارد. برای تجربه بهتر، از دکمه دانلود استفاده کنید.</p>
-            </div>
-            
-            <!-- بخش دانلود مستقیم (نتیجه جستجوی زنده) -->
-            <div class="download-section">
-              <h3>📥 لینک دانلود مستقیم (بدون سانسور)</h3>
-              ${downloadSectionHtml}
-            </div>
-          </div>
-        `;
-        
-        const fullHtml = generateFullHTML(content, "movies", "");
-        return new Response(fullHtml, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+        return new Response(generateHTML(html, 'movies', query), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
       }
 
-      return new Response("صفحه مورد نظر یافت نشد", { status: 404 });
-      
+      // ==================== صفحه اصلی فیلم‌ها ====================
+      if (path === "/" || path === "") {
+        const page = parseInt(searchParams.get("page")) || 1;
+        const res = await fetch(`${TMDB_BASE}/movie/now_playing?api_key=${TMDB_API_KEY}&language=fa-IR&page=${page}`);
+        const data = await res.json();
+        const totalPages = Math.min(data.total_pages || 10, 500);
+
+        let html = `<h2 class="page-title">🎬 فیلم‌های در حال پخش</h2><div class="movies-grid">`;
+        for (const m of data.results || []) {
+          html += `<div class="movie-card" onclick="location.href='/movie/${m.id}'"><img src="https://image.tmdb.org/t/p/w500${m.poster_path}" alt="${m.title}"><div class="movie-info"><h3>${m.title}</h3><div class="movie-meta"><span>⭐ ${m.vote_average.toFixed(1)}</span><span>${m.release_date ? m.release_date.split('-')[0] : ''}</span></div></div></div>`;
+        }
+        html += `</div>`;
+        html += getPagination(page, totalPages, "/");
+        return new Response(generateHTML(html, 'movies'), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
+
+      // ==================== صفحه سریال‌ها ====================
+      if (path === "/tv") {
+        const page = parseInt(searchParams.get("page")) || 1;
+        const res = await fetch(`${TMDB_BASE}/tv/on_the_air?api_key=${TMDB_API_KEY}&language=fa-IR&page=${page}`);
+        const data = await res.json();
+        const totalPages = Math.min(data.total_pages || 10, 500);
+
+        let html = `<h2 class="page-title">📺 سریال‌های در حال پخش</h2><div class="movies-grid">`;
+        for (const m of data.results || []) {
+          html += `<div class="movie-card" onclick="location.href='/tv/${m.id}'"><img src="https://image.tmdb.org/t/p/w500${m.poster_path}" alt="${m.name}"><div class="movie-info"><h3>${m.name}</h3><div class="movie-meta"><span>⭐ ${m.vote_average.toFixed(1)}</span><span>${m.first_air_date ? m.first_air_date.split('-')[0] : ''}</span></div></div></div>`;
+        }
+        html += `</div>`;
+        html += getPagination(page, totalPages, "/tv");
+        return new Response(generateHTML(html, 'tv'), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
+
+      // ==================== سریال ترکی ====================
+      if (path === "/turkish-series") {
+        const page = parseInt(searchParams.get("page")) || 1;
+        const res = await fetch(`${TMDB_BASE}/discover/tv?api_key=${TMDB_API_KEY}&language=fa-IR&with_origin_country=TR&page=${page}&sort_by=popularity.desc`);
+        const data = await res.json();
+        const totalPages = Math.min(data.total_pages || 10, 500);
+
+        let html = `<h2 class="page-title">🇹🇷 سریال‌های ترکی</h2><div class="movies-grid">`;
+        for (const m of data.results || []) {
+          html += `<div class="movie-card" onclick="location.href='/tv/${m.id}'"><img src="https://image.tmdb.org/t/p/w500${m.poster_path}" alt="${m.name}"><div class="movie-info"><h3>${m.name}</h3><div class="movie-meta"><span>⭐ ${m.vote_average.toFixed(1)}</span><span>${m.first_air_date ? m.first_air_date.split('-')[0] : ''}</span></div></div></div>`;
+        }
+        html += `</div>`;
+        html += getPagination(page, totalPages, "/turkish-series");
+        return new Response(generateHTML(html, 'turkish-series'), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
+
+      // ==================== سریال کره‌ای ====================
+      if (path === "/korean-series") {
+        const page = parseInt(searchParams.get("page")) || 1;
+        const res = await fetch(`${TMDB_BASE}/discover/tv?api_key=${TMDB_API_KEY}&language=fa-IR&with_origin_country=KR&page=${page}&sort_by=popularity.desc`);
+        const data = await res.json();
+        const totalPages = Math.min(data.total_pages || 10, 500);
+
+        let html = `<h2 class="page-title">🇰🇷 سریال‌های کره‌ای</h2><div class="movies-grid">`;
+        for (const m of data.results || []) {
+          html += `<div class="movie-card" onclick="location.href='/tv/${m.id}'"><img src="https://image.tmdb.org/t/p/w500${m.poster_path}" alt="${m.name}"><div class="movie-info"><h3>${m.name}</h3><div class="movie-meta"><span>⭐ ${m.vote_average.toFixed(1)}</span><span>${m.first_air_date ? m.first_air_date.split('-')[0] : ''}</span></div></div></div>`;
+        }
+        html += `</div>`;
+        html += getPagination(page, totalPages, "/korean-series");
+        return new Response(generateHTML(html, 'korean-series'), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
+
+      // ==================== سریال آسیایی ====================
+      if (path === "/asian-series") {
+        const page = parseInt(searchParams.get("page")) || 1;
+        const res = await fetch(`${TMDB_BASE}/discover/tv?api_key=${TMDB_API_KEY}&language=fa-IR&with_origin_country=JP|CN|TH|ID&page=${page}&sort_by=popularity.desc`);
+        const data = await res.json();
+        const totalPages = Math.min(data.total_pages || 10, 500);
+
+        let html = `<h2 class="page-title">🌏 سریال‌های آسیایی</h2><div class="movies-grid">`;
+        for (const m of data.results || []) {
+          html += `<div class="movie-card" onclick="location.href='/tv/${m.id}'"><img src="https://image.tmdb.org/t/p/w500${m.poster_path}" alt="${m.name}"><div class="movie-info"><h3>${m.name}</h3><div class="movie-meta"><span>⭐ ${m.vote_average.toFixed(1)}</span><span>${m.first_air_date ? m.first_air_date.split('-')[0] : ''}</span></div></div></div>`;
+        }
+        html += `</div>`;
+        html += getPagination(page, totalPages, "/asian-series");
+        return new Response(generateHTML(html, 'asian-series'), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
+
+      // ==================== 250 فیلم برتر ====================
+      if (path === "/top250-movies") {
+        const page = parseInt(searchParams.get("page")) || 1;
+        const res = await fetch(`${TMDB_BASE}/movie/top_rated?api_key=${TMDB_API_KEY}&language=fa-IR&page=${page}`);
+        const data = await res.json();
+        const totalPages = Math.min(data.total_pages || 10, 500);
+
+        let html = `<h2 class="page-title">⭐ ۲۵۰ فیلم برتر IMDb</h2><div class="movies-grid">`;
+        for (const m of data.results || []) {
+          html += `<div class="movie-card" onclick="location.href='/movie/${m.id}'"><img src="https://image.tmdb.org/t/p/w500${m.poster_path}" alt="${m.title}"><div class="movie-info"><h3>${m.title}</h3><div class="movie-meta"><span>⭐ ${m.vote_average.toFixed(1)}</span><span>${m.release_date ? m.release_date.split('-')[0] : ''}</span></div></div></div>`;
+        }
+        html += `</div>`;
+        html += getPagination(page, totalPages, "/top250-movies");
+        return new Response(generateHTML(html, 'top250-movies'), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
+
+      // ==================== 250 سریال برتر ====================
+      if (path === "/top250-tv") {
+        const page = parseInt(searchParams.get("page")) || 1;
+        const res = await fetch(`${TMDB_BASE}/tv/top_rated?api_key=${TMDB_API_KEY}&language=fa-IR&page=${page}`);
+        const data = await res.json();
+        const totalPages = Math.min(data.total_pages || 10, 500);
+
+        let html = `<h2 class="page-title">🏆 ۲۵۰ سریال برتر IMDb</h2><div class="movies-grid">`;
+        for (const m of data.results || []) {
+          html += `<div class="movie-card" onclick="location.href='/tv/${m.id}'"><img src="https://image.tmdb.org/t/p/w500${m.poster_path}" alt="${m.name}"><div class="movie-info"><h3>${m.name}</h3><div class="movie-meta"><span>⭐ ${m.vote_average.toFixed(1)}</span><span>${m.first_air_date ? m.first_air_date.split('-')[0] : ''}</span></div></div></div>`;
+        }
+        html += `</div>`;
+        html += getPagination(page, totalPages, "/top250-tv");
+        return new Response(generateHTML(html, 'top250-tv'), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
+
+      // ==================== صفحه فیلم ====================
+      if (path.startsWith("/movie/")) {
+        const movieId = path.split("/")[2];
+        const tmdbRes = await fetch(`${TMDB_BASE}/movie/${movieId}?api_key=${TMDB_API_KEY}&language=fa-IR&append_to_response=credits`);
+        const movie = await tmdbRes.json();
+        const imdbId = movie.imdb_id || movieId;
+
+        const genres = movie.genres ? movie.genres.map(g => g.name).join(' • ') : 'نامشخص';
+        const runtime = movie.runtime ? `${movie.runtime} دقیقه` : 'نامشخص';
+        const cast = movie.credits?.cast?.slice(0, 8).map(c => c.name).join(' • ') || 'نامشخص';
+        const director = movie.credits?.crew?.find(c => c.job === 'Director')?.name || 'نامشخص';
+
+        const cleanTitle = movie.original_title || movie.title;
+
+        const content = `
+          <div class="section">
+            <h1 style="font-size:34px;margin-bottom:8px">${movie.title}</h1>
+            <p style="color:#aaa;margin-bottom:20px;font-size:17px">${movie.original_title} (${movie.release_date ? movie.release_date.split('-')[0] : ''})</p>
+
+            <div class="info-grid">
+              <div class="info-item"><div class="info-label">⭐ امتیاز</div><div class="info-value">${movie.vote_average.toFixed(1)} / 10</div></div>
+              <div class="info-item"><div class="info-label">📅 تاریخ انتشار</div><div class="info-value">${movie.release_date || 'نامشخص'}</div></div>
+              <div class="info-item"><div class="info-label">🎭 ژانر</div><div class="info-value">${genres}</div></div>
+              <div class="info-item"><div class="info-label">⏱ مدت زمان</div><div class="info-value">${runtime}</div></div>
+            </div>
+
+            <div style="margin-top:28px"><h3>📝 خلاصه داستان</h3><p style="margin-top:10px;line-height:1.8;color:#ddd">${movie.overview || 'خلاصه‌ای ثبت نشده است.'}</p></div>
+
+            <div style="margin-top:28px"><h3>🎭 عوامل فیلم</h3><div class="info-grid" style="margin-top:12px"><div class="info-item"><div class="info-label">🎬 کارگردان</div><div class="info-value">${director}</div></div><div class="info-item"><div class="info-label">👥 بازیگران اصلی</div><div class="info-value">${cast}</div></div></div></div>
+
+            <button class="more-info-btn" onclick="toggleExtraInfo()">📖 اطلاعات بیشتر</button>
+            <div id="extra-info" class="extra-info">
+              <div class="info-grid">
+                <div class="info-item"><div class="info-label">🌐 وبسایت رسمی</div><div class="info-value">${movie.homepage || 'ندارد'}</div></div>
+                <div class="info-item"><div class="info-label">🔢 وضعیت</div><div class="info-value">${movie.status || 'نامشخص'}</div></div>
+              </div>
+            </div>
+
+            <h3 style="margin-top:45px">🎬 پخش آنلاین فیلم</h3>
+            <div class="player-tabs">
+              <button class="player-tab active" onclick="switchPlayer('https://vidsrc.xyz/embed/movie/${imdbId}', this)">Vidsrc</button>
+              <button class="player-tab" onclick="switchPlayer('https://www.2embed.cc/embed/${imdbId}', this)">2Embed</button>
+              <button class="player-tab" onclick="switchPlayer('https://vidsrc.to/embed/movie/${imdbId}', this)">Vidsrc.to</button>
+              <button class="player-tab" onclick="switchPlayer('https://embed.su/embed/movie/${imdbId}', this)">Embed.su</button>
+            </div>
+            <div class="video-container" id="player-container"><iframe src="https://vidsrc.xyz/embed/movie/${imdbId}" frameborder="0" allowfullscreen></iframe></div>
+            <p style="font-size:12px;color:#888;margin-top:10px">💡 بعضی پخش‌کننده‌ها زیرنویس فارسی دارند.</p>
+
+            <h3 style="margin-top:45px">📥 لینک‌های دانلود (چند منبع)</h3>
+            <div class="download-sources">
+              <a href="https://www.f2mc.top/?s=${encodeURIComponent(cleanTitle)}" target="_blank" class="source-btn">f2mc.top</a>
+              <a href="https://digimovie.vip/?s=${encodeURIComponent(cleanTitle)}" target="_blank" class="source-btn">Digimovie</a>
+              <a href="https://www.f2m.top/?s=${encodeURIComponent(cleanTitle)}" target="_blank" class="source-btn">f2m.top</a>
+              <a href="https://www.film2movie.asia/?s=${encodeURIComponent(cleanTitle)}" target="_blank" class="source-btn">Film2Movie</a>
+            </div>
+          </div>
+
+          <script>
+            function switchPlayer(src, btn) {
+              document.querySelectorAll('.player-tab').forEach(b => b.classList.remove('active'));
+              btn.classList.add('active');
+              document.getElementById('player-container').innerHTML = '<iframe src="' + src + '" frameborder="0" allowfullscreen></iframe>';
+            }
+            function toggleExtraInfo() {
+              document.getElementById('extra-info').classList.toggle('show');
+            }
+          </script>
+        `;
+        return new Response(generateHTML(content), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
+
+      // ==================== صفحه سریال ====================
+      if (path.startsWith("/tv/")) {
+        const tvId = path.split("/")[2];
+        const tmdbRes = await fetch(`${TMDB_BASE}/tv/${tvId}?api_key=${TMDB_API_KEY}&language=fa-IR&append_to_response=credits`);
+        const tv = await tmdbRes.json();
+        const imdbId = tv.imdb_id || tvId;
+
+        let seasonsHtml = '';
+        if (tv.seasons && tv.seasons.length > 0) {
+          for (const season of tv.seasons) {
+            if (season.season_number === 0) continue;
+            const seasonRes = await fetch(`${TMDB_BASE}/tv/${tvId}/season/${season.season_number}?api_key=${TMDB_API_KEY}&language=fa-IR`);
+            const seasonData = await seasonRes.json();
+
+            seasonsHtml += `<div style="margin-bottom:30px"><h4 style="color:#e50914;margin-bottom:14px">فصل ${season.season_number}</h4>`;
+            for (const ep of seasonData.episodes || []) {
+              const embedUrl = `https://vidsrc.xyz/embed/tv/${imdbId}/${season.season_number}/${ep.episode_number}`;
+              const episodeTitle = `${tv.name} S${season.season_number}E${ep.episode_number}`;
+              seasonsHtml += `
+                <div class="episode-container">
+                  <button class="episode-btn" onclick="playEpisode('${embedUrl}', this)">▶ پخش قسمت ${ep.episode_number}</button>
+                  <button class="episode-btn" style="background:#1f1f2e;border-color:#666" onclick="downloadEpisode('${episodeTitle}', '${tv.original_name}', this)">📥 دانلود</button>
+                </div>`;
+            }
+            seasonsHtml += `</div>`;
+          }
+        }
+
+        const genres = tv.genres ? tv.genres.map(g => g.name).join(' • ') : 'نامشخص';
+        const cast = tv.credits?.cast?.slice(0, 8).map(c => c.name).join(' • ') || 'نامشخص';
+        const creator = tv.created_by?.map(c => c.name).join(' • ') || 'نامشخص';
+        const cleanTitle = tv.original_name || tv.name;
+
+        const content = `
+          <div class="section">
+            <h1 style="font-size:34px;margin-bottom:8px">${tv.name}</h1>
+            <p style="color:#aaa;margin-bottom:20px;font-size:17px">${tv.original_name} (${tv.first_air_date ? tv.first_air_date.split('-')[0] : ''})</p>
+
+            <div class="info-grid">
+              <div class="info-item"><div class="info-label">⭐ امتیاز</div><div class="info-value">${tv.vote_average.toFixed(1)} / 10</div></div>
+              <div class="info-item"><div class="info-label">📅 اولین پخش</div><div class="info-value">${tv.first_air_date || 'نامشخص'}</div></div>
+              <div class="info-item"><div class="info-label">🎭 ژانر</div><div class="info-value">${genres}</div></div>
+              <div class="info-item"><div class="info-label">📺 تعداد فصل</div><div class="info-value">${tv.number_of_seasons || 0} فصل</div></div>
+            </div>
+
+            <div style="margin-top:28px"><h3>📝 خلاصه داستان</h3><p style="margin-top:10px;line-height:1.8;color:#ddd">${tv.overview || 'خلاصه‌ای ثبت نشده است.'}</p></div>
+
+            <div style="margin-top:28px"><h3>🎭 عوامل سریال</h3><div class="info-grid" style="margin-top:12px"><div class="info-item"><div class="info-label">✍️ سازنده</div><div class="info-value">${creator}</div></div><div class="info-item"><div class="info-label">👥 بازیگران اصلی</div><div class="info-value">${cast}</div></div></div></div>
+
+            <h3 style="margin-top:45px">🎬 پخش آنلاین و دانلود (قسمت به قسمت)</h3>
+            <div style="background:#1f1f2e;padding:22px;border-radius:14px">${seasonsHtml || '<p>اطلاعات قسمت‌ها در دسترس نیست.</p>'}</div>
+
+            <div class="video-container" id="player-container" style="margin-top:18px;display:none"><iframe id="episode-player" frameborder="0" allowfullscreen></iframe></div>
+
+            <h3 style="margin-top:45px">📥 دانلود کل سریال (چند منبع)</h3>
+            <div class="download-sources">
+              <a href="https://www.f2mc.top/?s=${encodeURIComponent(cleanTitle)}" target="_blank" class="source-btn">f2mc.top</a>
+              <a href="https://digimovie.vip/?s=${encodeURIComponent(cleanTitle)}" target="_blank" class="source-btn">Digimovie</a>
+              <a href="https://www.f2m.top/?s=${encodeURIComponent(cleanTitle)}" target="_blank" class="source-btn">f2m.top</a>
+              <a href="https://www.film2movie.asia/?s=${encodeURIComponent(cleanTitle)}" target="_blank" class="source-btn">Film2Movie</a>
+            </div>
+          </div>
+
+          <script>
+            function playEpisode(embedUrl, btn) {
+              document.querySelectorAll('.episode-btn').forEach(b => b.style.background = '#2a2a3e');
+              btn.style.background = '#e50914';
+              const container = document.getElementById('player-container');
+              const iframe = document.getElementById('episode-player');
+              iframe.src = embedUrl;
+              container.style.display = 'block';
+              container.scrollIntoView({ behavior: 'smooth' });
+            }
+            async function downloadEpisode(episodeTitle, originalName, btn) {
+              const originalText = btn.innerHTML;
+              btn.innerHTML = '⏳ در حال جستجو...';
+              btn.disabled = true;
+              try {
+                const res = await fetch('/api/get-download?title=' + encodeURIComponent(episodeTitle) + '&original=' + encodeURIComponent(originalName || '') + '&quality=');
+                const data = await res.json();
+                if (data.success && data.link) window.open(data.link, '_blank');
+                else window.open('https://www.f2mc.top/?s=' + encodeURIComponent(episodeTitle), '_blank');
+              } catch(e) {
+                window.open('https://www.f2mc.top/?s=' + encodeURIComponent(episodeTitle), '_blank');
+              }
+              btn.innerHTML = originalText;
+              btn.disabled = false;
+            }
+          </script>
+        `;
+        return new Response(generateHTML(content), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
+
+      // ==================== API دانلود ====================
+      if (path.startsWith("/api/get-download")) {
+        const title = searchParams.get("title");
+        const original = searchParams.get("original") || "";
+        const quality = searchParams.get("quality") || "";
+
+        if (!title) return new Response(JSON.stringify({ success: false }), { headers: { "Content-Type": "application/json" } });
+
+        const result = await searchDownloadLink(title, original, quality);
+
+        if (result && result.link) {
+          return new Response(JSON.stringify({ success: true, link: result.link, source: result.source }), {
+            headers: { "Content-Type": "application/json" }
+          });
+        } else {
+          return new Response(JSON.stringify({ success: false }), {
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+      }
+
+      return new Response("صفحه یافت نشد", { status: 404 });
+
     } catch (error) {
-      console.error(error);
-      return new Response(`<html><body style="background:#0f0f1a; color:white; text-align:center; padding:50px;"><h1 style="color:#e50914;">❌ خطای داخلی سرور</h1><p>${error.message}</p><button onclick="location.reload()">تلاش مجدد</button></body></html>`, { status: 500 });
+      return new Response(`<html><body style="background:#0f0f1a;color:white;text-align:center;padding:50px"><h1>خطا</h1><p>${error.message}</p></body></html>`, { status: 500 });
     }
   }
 };
-
-// تابع کمکی برای تولید قالب کامل HTML
-function generateFullHTML(content, activeTab, searchQuery) {
-  return `<!DOCTYPE html>
-  <html lang="fa" dir="rtl">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>آدام فیلم - دانلود فیلم و سریال بدون سانسور</title>
-    <style>
-      * { margin:0; padding:0; box-sizing:border-box; }
-      body { font-family: 'Tahoma', 'Vazirmatn', sans-serif; background: #0f0f1a; color: #fff; direction: rtl; line-height:1.6; }
-      .header { background: linear-gradient(135deg, #e50914, #b20710); padding: 20px; text-align: center; }
-      .header h1 a { color: white; text-decoration: none; font-size: 2em; }
-      .search-box { max-width: 500px; margin: 15px auto 0; display: flex; }
-      .search-box input { flex: 1; padding: 10px; border: none; border-radius: 8px 0 0 8px; font-size: 14px; }
-      .search-box button { padding: 10px 20px; background: #333; color: white; border: none; border-radius: 0 8px 8px 0; cursor: pointer; }
-      .nav { background: #1a1a2e; padding: 12px; text-align: center; border-bottom: 2px solid #e50914; position: sticky; top: 0; }
-      .nav a { color: white; text-decoration: none; margin: 0 8px; padding: 6px 15px; border-radius: 6px; transition: 0.3s; display: inline-block; }
-      .nav a:hover, .nav a.active { background: #e50914; }
-      .container { max-width: 1300px; margin: 30px auto; padding: 0 20px; }
-      .page-title { margin-bottom: 25px; border-right: 4px solid #e50914; padding-right: 15px; }
-      .movies-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 25px; }
-      .movie-card { background: #1a1a2e; border-radius: 12px; overflow: hidden; cursor: pointer; transition: 0.3s; border: 1px solid #2a2a3e; }
-      .movie-card:hover { transform: translateY(-5px); box-shadow: 0 8px 20px rgba(229,9,20,0.3); border-color: #e50914; }
-      .movie-card img { width: 100%; height: 270px; object-fit: cover; }
-      .no-poster { height: 270px; background: #2a2a3e; display: flex; align-items: center; justify-content: center; }
-      .movie-card h3 { padding: 12px; font-size: 15px; text-align: center; }
-      .meta { display: flex; justify-content: center; gap: 15px; padding-bottom: 12px; font-size: 12px; color: #ccc; }
-      .footer { background: #1a1a2e; text-align: center; padding: 20px; margin-top: 50px; border-top: 1px solid #e50914; color: #888; font-size: 12px; }
-      .footer a { color: #e50914; text-decoration: none; }
-      
-      /* جزئیات فیلم */
-      .movie-detail-page { background: #1a1a2e; border-radius: 20px; overflow: hidden; }
-      .movie-header { background-size: cover; background-position: center; padding: 40px; }
-      .movie-info-container { display: flex; flex-wrap: wrap; gap: 30px; align-items: flex-start; }
-      .detail-poster { width: 240px; border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
-      .detail-text { flex: 1; }
-      .detail-text h1 { font-size: 1.8em; color: #e50914; margin-bottom: 8px; }
-      .original-title { color: #aaa; margin-bottom: 12px; }
-      .detail-meta { display: flex; flex-wrap: wrap; gap: 12px; margin: 15px 0; padding: 12px 0; border-top: 1px solid #333; border-bottom: 1px solid #333; }
-      .overview { line-height: 1.7; color: #ddd; }
-      .online-player-section, .download-section { padding: 25px; border-top: 1px solid #2a2a3e; }
-      .online-player-section h3, .download-section h3 { color: #e50914; margin-bottom: 15px; }
-      .video-container { position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border-radius: 12px; background: #000; }
-      .video-container iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-      .player-note { font-size: 12px; color: #aaa; text-align: center; margin-top: 12px; }
-      
-      /* بخش دانلود خودکار */
-      .download-link-found, .no-link-found { background: #0f0f1a; border-radius: 12px; padding: 20px; margin-top: 10px; }
-      .success-message { background: #1a4a2a; color: #4caf50; padding: 10px; border-radius: 8px; margin-bottom: 15px; text-align: center; font-weight: bold; }
-      .error-message { background: #4a1a1a; color: #ff6b6b; padding: 10px; border-radius: 8px; margin-bottom: 15px; text-align: center; font-weight: bold; }
-      .link-box { background: #1a1a2e; padding: 12px; border-radius: 8px; font-size: 12px; direction: ltr; text-align: left; word-break: break-all; margin-bottom: 15px; border: 1px solid #2a2a3e; color: #4caf50; }
-      .download-button { display: inline-block; background: #e50914; color: white; padding: 12px 25px; border-radius: 8px; text-decoration: none; font-weight: bold; transition: 0.3s; margin-bottom: 10px; }
-      .download-button:hover { background: #ff0a1a; transform: scale(1.02); }
-      .download-note { font-size: 11px; color: #888; margin-top: 10px; }
-      .no-link-found p { margin-bottom: 10px; }
-      @media (max-width: 768px) { .movies-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); } .detail-poster { width: 160px; } .movie-card img, .no-poster { height: 200px; } }
-    </style>
-  </head>
-  <body>
-    ${renderHeader(activeTab, searchQuery)}
-    <div class="container">${content}</div>
-    ${renderFooter()}
-  </body>
-  </html>`;
-  
-  function renderHeader(activeTab, searchQuery) {
-    return `
-    <div class="header">
-      <h1><a href="/">🎬 آدام فیلم</a></h1>
-      <form action="/search" method="GET" class="search-box">
-        <input type="text" name="q" placeholder="جستجوی فیلم یا سریال..." value="${searchQuery || ''}">
-        <button type="submit">🔍 جستجو</button>
-      </form>
-    </div>
-    <div class="nav">
-      <a href="/" class="${activeTab === 'movies' ? 'active' : ''}">🏠 فیلم‌های روز</a>
-      <a href="/tv" class="${activeTab === 'tv' ? 'active' : ''}">📺 سریال‌ها</a>
-      <a href="/top250-movies">⭐ ۲۵۰ فیلم برتر</a>
-      <a href="/top250-tv">🏆 ۲۵۰ سریال برتر</a>
-    </div>`;
-  }
-  
-  function renderFooter() {
-    return `<div class="footer"><p>© 2024 آدام فیلم - دانلود فیلم و سریال با لینک مستقیم و پخش آنلاین</p><p style="font-size: 11px; margin-top: 5px;">لینک‌ها به صورت خودکار از <a href="https://www.f2mc.top" target="_blank" style="color:#e50914;">f2mc.top</a> دریافت می‌شوند</p></div>`;
-  }
-}
